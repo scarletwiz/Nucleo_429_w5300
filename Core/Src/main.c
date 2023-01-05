@@ -63,6 +63,8 @@
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart3;
 
+DMA_HandleTypeDef hdma_memtomem_dma2_stream4;
+DMA_HandleTypeDef hdma_memtomem_dma2_stream5;
 SRAM_HandleTypeDef hsram1;
 
 /* USER CODE BEGIN PV */
@@ -86,6 +88,7 @@ static uint8_t g_loopback_buf[ETHERNET_BUF_MAX_SIZE] = {
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_FMC_Init(void);
 static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
@@ -121,7 +124,29 @@ static void wizchip_reset()
   HAL_GPIO_WritePin(W5x00_RST_GPIO_Port, W5x00_RST_Pin, GPIO_PIN_SET);
   HAL_Delay(100);
 }
+#ifdef DMA
 
+void wizchip_dma_read(uint32_t addr, iodata_t data)
+{
+	//HAL_SRAM_Write_DMA
+	while (HAL_DMA_GetState(&W5300_DMA_TX) != HAL_DMA_STATE_READY);
+	HAL_DMA_Start_IT(&W5300_DMA_TX, (uint32_t)&data, (uint32_t)addr, 1);
+	while (HAL_DMA_GetState(&W5300_DMA_TX) == HAL_DMA_STATE_RESET);
+}
+
+iodata_t wizchip_dma_write(uint32_t addr)
+{
+	iodata_t ret;
+
+	while (HAL_DMA_GetState(&W5300_DMA_RX) != HAL_DMA_STATE_READY);
+	HAL_DMA_Start_IT(&W5300_DMA_RX, (uint32_t)addr, &ret, 1);
+	while (HAL_DMA_GetState(&W5300_DMA_RX) == HAL_DMA_STATE_RESET);
+
+	return ret;
+}
+
+
+#else
 static iodata_t wizchip_read(uint32_t addr)
 {
   return _W5300_DATA(addr);
@@ -131,7 +156,7 @@ static void wizchip_write(uint32_t addr, iodata_t tx_data)
 {
   _W5300_DATA(addr) = tx_data;
 }
-
+#endif
 void wizchip_initialize(void)
 {
   /* Deselect the FLASH : chip select high */
@@ -141,12 +166,17 @@ void wizchip_initialize(void)
   //reg_wizchip_cs_cbfunc(wizchip_select, wizchip_deselect);
 
   /* BUS function register */
+#ifdef DMA
+  reg_wizchip_bus_cbfunc(wizchip_dma_read, wizchip_dma_write);
+#else
   reg_wizchip_bus_cbfunc(wizchip_read, wizchip_write);
+#endif
 
   /* W5x00 initialize */
 #if (_WIZCHIP_ == W5100S)
   uint8_t memsize[2][4] = {{2, 2, 2, 2}, {2, 2, 2, 2}};
 #elif (_WIZCHIP_ == W5300)
+//  uint8_t memsize[2][8] = {{64, 0, 0, 0, 0, 0, 0, 0}, {64, 0, 0, 0, 0, 0, 0, 0}};
   uint8_t memsize[2][8] = {{8, 8, 8, 0, 8, 8, 8, 8}, {8, 8, 8, 8, 8, 8, 8, 8}};
 #elif (_WIZCHIP_ == W5500)
   uint8_t memsize[2][8] = {{2, 2, 2, 2, 2, 2, 2, 2}, {2, 2, 2, 2, 2, 2, 2, 2}};
@@ -158,7 +188,11 @@ void wizchip_initialize(void)
 
     return;
   }
-
+  for(int i = 0 ; i < _WIZCHIP_SOCK_NUM_; i++)
+  {
+	  printf("Tx socker%d buf size is: %d, ",i, getSn_TXBUF_SIZE(i));
+	  printf("Rx socker%d buf size is: %d \r\n",i, getSn_RXBUF_SIZE(i));
+  }
 #if (_WIZCHIP_ != W5300)
   uint8_t temp;
 
@@ -267,6 +301,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_FMC_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
@@ -386,6 +421,66 @@ static void MX_USART3_UART_Init(void)
   /* USER CODE BEGIN USART3_Init 2 */
 
   /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  * Configure DMA for memory to memory transfers
+  *   hdma_memtomem_dma2_stream4
+  *   hdma_memtomem_dma2_stream5
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* Configure DMA request hdma_memtomem_dma2_stream4 on DMA2_Stream4 */
+  hdma_memtomem_dma2_stream4.Instance = DMA2_Stream4;
+  hdma_memtomem_dma2_stream4.Init.Channel = DMA_CHANNEL_0;
+  hdma_memtomem_dma2_stream4.Init.Direction = DMA_MEMORY_TO_MEMORY;
+  hdma_memtomem_dma2_stream4.Init.PeriphInc = DMA_PINC_DISABLE;
+  hdma_memtomem_dma2_stream4.Init.MemInc = DMA_MINC_ENABLE;
+  hdma_memtomem_dma2_stream4.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+  hdma_memtomem_dma2_stream4.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+  hdma_memtomem_dma2_stream4.Init.Mode = DMA_NORMAL;
+  hdma_memtomem_dma2_stream4.Init.Priority = DMA_PRIORITY_HIGH;
+  hdma_memtomem_dma2_stream4.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
+  hdma_memtomem_dma2_stream4.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+  hdma_memtomem_dma2_stream4.Init.MemBurst = DMA_MBURST_SINGLE;
+  hdma_memtomem_dma2_stream4.Init.PeriphBurst = DMA_PBURST_SINGLE;
+  if (HAL_DMA_Init(&hdma_memtomem_dma2_stream4) != HAL_OK)
+  {
+    Error_Handler( );
+  }
+
+  /* Configure DMA request hdma_memtomem_dma2_stream5 on DMA2_Stream5 */
+  hdma_memtomem_dma2_stream5.Instance = DMA2_Stream5;
+  hdma_memtomem_dma2_stream5.Init.Channel = DMA_CHANNEL_0;
+  hdma_memtomem_dma2_stream5.Init.Direction = DMA_MEMORY_TO_MEMORY;
+  hdma_memtomem_dma2_stream5.Init.PeriphInc = DMA_PINC_ENABLE;
+  hdma_memtomem_dma2_stream5.Init.MemInc = DMA_MINC_DISABLE;
+  hdma_memtomem_dma2_stream5.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+  hdma_memtomem_dma2_stream5.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+  hdma_memtomem_dma2_stream5.Init.Mode = DMA_NORMAL;
+  hdma_memtomem_dma2_stream5.Init.Priority = DMA_PRIORITY_HIGH;
+  hdma_memtomem_dma2_stream5.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
+  hdma_memtomem_dma2_stream5.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+  hdma_memtomem_dma2_stream5.Init.MemBurst = DMA_MBURST_SINGLE;
+  hdma_memtomem_dma2_stream5.Init.PeriphBurst = DMA_PBURST_SINGLE;
+  if (HAL_DMA_Init(&hdma_memtomem_dma2_stream5) != HAL_OK)
+  {
+    Error_Handler( );
+  }
+
+  /* DMA interrupt init */
+  /* DMA2_Stream4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream4_IRQn);
+  /* DMA2_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
 
 }
 

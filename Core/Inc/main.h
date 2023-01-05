@@ -36,12 +36,14 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+#define W5300_DMA_TX hdma_memtomem_dma2_stream4
+#define W5300_DMA_RX hdma_memtomem_dma2_stream5
 
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+//#define DMA
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
